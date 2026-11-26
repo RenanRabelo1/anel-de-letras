@@ -1,0 +1,1021 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Anel de Letras</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #000;
+    --fg: #d6d6dc;
+    --dim: #6b6b75;
+    --pink: #ff5c8a;
+    --line: #15151a;
+    --efs: 12.5px;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body {
+    height: 100%;
+    background: var(--bg);
+    color: var(--fg);
+    font-family: "JetBrains Mono", ui-monospace, "Cascadia Mono", Consolas, monospace;
+    overflow: hidden;
+    -webkit-font-smoothing: antialiased;
+  }
+  #app { display: flex; flex-direction: column; width: 100vw; height: 100vh; height: 100dvh; }
+  #stage { position: relative; flex: 0 0 60%; min-height: 0; }
+  #editor {
+    position: relative; flex: 1 1 auto; min-height: 0; overflow: hidden;
+    border-top: 1px solid var(--line);
+    -webkit-mask-image: linear-gradient(to bottom, transparent 0, #000 10%, #000 78%, transparent 100%);
+            mask-image: linear-gradient(to bottom, transparent 0, #000 10%, #000 78%, transparent 100%);
+  }
+  @media (min-aspect-ratio: 1/1) {
+    #app { flex-direction: row; }
+    #stage { flex: 1 1 60%; }
+    #editor { flex: 0 0 40%; border-top: 0; border-left: 1px solid var(--line); }
+  }
+  @media (max-width: 600px) { :root { --efs: 10.5px; } }
+
+  canvas { display: block; width: 100%; height: 100%; touch-action: none; cursor: grab; }
+  canvas.grabbing { cursor: grabbing; }
+
+  /* ---- controls ---- */
+  #ui {
+    position: absolute; top: 14px; left: 16px; right: 120px;
+    display: flex; flex-wrap: wrap; gap: 6px; align-items: center;
+    font-size: 11px; opacity: .55; transition: opacity .25s;
+  }
+  #ui:hover, #ui:focus-within { opacity: 1; }
+  #ui label {
+    display: flex; align-items: center; gap: 6px;
+    background: rgba(0,0,0,.7); border: 1px solid #26262d; border-radius: 3px; padding: 0 8px;
+  }
+  #ui label span { color: var(--dim); }
+  #ui input {
+    width: 10.5em; background: transparent; border: 0; outline: 0; color: #f2f2f5;
+    font: inherit; font-size: 12px; padding: 6px 0; text-transform: uppercase; letter-spacing: .04em;
+  }
+  #ui input::placeholder { color: #45454e; text-transform: none; letter-spacing: 0; }
+  #ui label:focus-within { border-color: var(--pink); }
+  #ui button {
+    font: inherit; font-size: 11px; color: #d0d0d8; background: rgba(0,0,0,.7);
+    border: 1px solid #26262d; border-radius: 3px; padding: 6px 10px; cursor: pointer;
+  }
+  #ui button:hover { border-color: var(--pink); color: #fff; }
+  #ui button:focus-visible { outline: 1px solid var(--pink); }
+  #hint {
+    position: absolute; left: 16px; top: 52px; font-size: 10.5px; color: #4d4d57;
+    pointer-events: none; transition: opacity 1s;
+  }
+  @media (max-width: 600px) { #ui { right: 16px; top: 34px; } #hint { top: 104px; } }
+
+  /* ---- editor ---- */
+  #code {
+    position: absolute; left: 0; right: 0; top: 0;
+    font-size: var(--efs); line-height: 1.6; white-space: pre; will-change: transform; font-variant-ligatures: none;
+    padding-top: 6px;
+  }
+  .ln { display: flex; height: 1.6em; border-left: 2px solid transparent; }
+  .ln .no { flex: 0 0 4.2em; color: #34343c; text-align: right; padding-right: 1.5em; }
+  .ln.cur { background: rgba(255, 92, 138, .07); border-left-color: var(--pink); }
+  .ln.cur .no { color: var(--pink); }
+  .cursor { background: var(--pink); color: #000; animation: blink 1s steps(1) infinite; }
+  @keyframes blink { 50% { background: transparent; color: inherit; } }
+  .c0 { color: #c6c6ce; } .c1 { color: #ff6b9a; } .c2 { color: #82aaff; }
+  .c3 { color: #e5c07b; } .c4 { color: #f78c6c; } .c5 { color: #50545f; font-style: italic; }
+  .c6 { color: #89ddff; } .c7 { color: #ededf0; } .c8 { color: #82aaff; }
+</style>
+</head>
+<body>
+<div id="app">
+  <div id="stage">
+    <canvas id="cv" aria-label="Anel de diamante desenhado com as letras de um nome"></canvas>
+    <div id="ui">
+      <label><span>nome</span><input id="inName" maxlength="24" placeholder="digite um nome" autocomplete="off" spellcheck="false"></label>
+      <label><span>pedra</span><input id="inStone" maxlength="24" placeholder="opcional" autocomplete="off" spellcheck="false"></label>
+      <button id="btnCopy" type="button">copiar link</button>
+      <button id="btnReplay" type="button" title="recomeçar">↻</button>
+    </div>
+    <div id="hint">roda do mouse / pinça para aproximar · arraste para girar · duplo clique volta</div>
+  </div>
+  <div id="editor"><div id="code"></div></div>
+</div>
+
+<script>
+"use strict";
+// =====================================================================
+//  geometry: same constants as the python shown in the editor
+// =====================================================================
+const TAU = Math.PI * 2;
+const R = 1.0, A = 0.10, B = 0.16;                // band radius, half thickness, half width
+const CULET_Y = 1.12, GIRDLE_Y = 1.55, TABLE_Y = 1.78;
+const GIRDLE_R = 0.42, TABLE_R = 0.27;
+const SU = 0.05, SL = 0.075;                       // one letter wide, one line tall (world units)
+const TURN = 12, DRAW0 = 0.3, DRAW1 = 5.6, ORDMAX = 1.7;
+const YC = (-(R + A) + TABLE_Y) / 2;               // vertical centre of the whole ring
+const FLOOR = -(R + A) - 0.06;
+const CAM = 8;                                     // camera distance (mild perspective)
+const PITCH0 = 0.18;
+
+const RAMP = ".:;-=+*#%$§@";
+const SYMS = "/\\[]{}()|<>";
+
+function seqOf(s) {
+  s = (s || "").normalize("NFC").trim().toUpperCase().replace(/\s+/g, "·");
+  const a = Array.from(s);
+  return a.length ? a.concat("·") : null;
+}
+const mod = (i, n) => ((i % n) + n) % n;
+const sub = (a, b) => [a[0] - b[0], a[1] - b[1], a[2] - b[2]];
+const len3 = (a) => Math.hypot(a[0], a[1], a[2]);
+const cross = (a, b) => [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]];
+const norm = (a) => { const l = len3(a) || 1; return [a[0] / l, a[1] / l, a[2] / l]; };
+
+// seeded random so the ring looks the same every load
+let seed = 7;
+const srand = () => ((seed = (seed * 16807) % 2147483647) / 2147483647);
+
+function buildGeometry(bandSeq, stoneSeq) {
+  seed = 7;
+  const P = [], Nn = [], K = [], O = [], I = [], Rn = [];
+  const add = (p, n, k, idx, r) => {
+    const nn = norm(n);
+    P.push(p[0], p[1], p[2]); Nn.push(nn[0], nn[1], nn[2]);
+    K.push(k); I.push(idx); Rn.push(r === undefined ? srand() : r);
+    let o;
+    if (k === 0) {            // band draws itself from the bottom up, both sides at once
+      let d = Math.atan2(p[1], p[0]) + Math.PI / 2;
+      d = Math.atan2(Math.sin(d), Math.cos(d));
+      o = Math.abs(d) / Math.PI;
+    } else if (k === 1) {     // then the prongs rise
+      o = 1.0 + (p[1] - R) / (TABLE_Y - R) * 0.25;
+    } else {                  // then the diamond fills in from its tip
+      o = 1.25 + (p[1] - CULET_Y) / (TABLE_Y - CULET_Y) * 0.45;
+    }
+    O.push(o);
+  };
+
+  // ---- band: elliptic tube, sampled evenly by arc length, written in rows
+  const L = bandSeq ? bandSeq.length : 1;
+  const nu0 = Math.round(TAU * R / SU);
+  const nu = bandSeq ? Math.max(L, Math.round(nu0 / L) * L) : nu0;   // the name never breaks mid-word
+  const M = 720, cum = [0];
+  for (let i = 1; i <= M; i++) {
+    const vm = TAU * (i - 0.5) / M;
+    cum.push(cum[i - 1] + Math.hypot(A * Math.sin(vm), B * Math.cos(vm)) * TAU / M);
+  }
+  const per = cum[M], nv = Math.max(6, Math.round(per / SL));
+  for (let r = 0, j = 0; r < nv; r++) {
+    const s = per * r / nv;
+    while (cum[j + 1] < s) j++;
+    const v = TAU * (j + (s - cum[j]) / (cum[j + 1] - cum[j])) / M;
+    const cv = Math.cos(v), sv = Math.sin(v);
+    for (let c = 0; c < nu; c++) {
+      const u = TAU * c / nu, cu = Math.cos(u), su = Math.sin(u), rr = R + A * cv;
+      // front face reads left->right from the front, back face from the back
+      add([rr * cu, rr * su, B * sv], [cv / A * cu, cv / A * su, sv / B], 0, (sv >= 0 ? c : -c) + r * 3);
+    }
+  }
+
+  // ---- prongs + a small basket ring that holds the stone
+  for (let i = 0; i < 4; i++) {
+    const a = TAU * (i + 0.5) / 4;
+    const base = [0.10 * Math.cos(a), R + A - 0.03, 0.10 * Math.sin(a)];
+    const tip = [(GIRDLE_R + 0.025) * Math.cos(a), GIRDLE_Y + 0.07, (GIRDLE_R + 0.025) * Math.sin(a)];
+    const dv = sub(tip, base), d = norm(dv);
+    const s = norm(cross(d, [0, 0, 1])), w = cross(s, d);
+    const nl = Math.max(3, Math.round(len3(dv) / (SL * 0.9)));
+    for (let l = 0; l < nl; l++) for (let f = 0; f < 5; f++) {
+      const ph = TAU * f / 5, n = [0, 1, 2].map(q => Math.cos(ph) * s[q] + Math.sin(ph) * w[q]);
+      const tt = l / (nl - 1);
+      add([0, 1, 2].map(q => base[q] + tt * dv[q] + n[q] * 0.032), n, 1, l + i * 2);
+    }
+  }
+  { const by = 1.30, br = 0.245, nb = Math.round(TAU * br / SU);
+    for (let c = 0; c < nb; c++) for (let f = 0; f < 4; f++) {
+      const u = TAU * c / nb, ph = TAU * f / 4;
+      const er = [Math.cos(u), 0, Math.sin(u)];
+      const n = [er[0] * Math.cos(ph), Math.sin(ph), er[2] * Math.cos(ph)];
+      add([er[0] * br + n[0] * 0.025, by + n[1] * 0.025, er[2] * br + n[2] * 0.025], n, 1, -c);
+    } }
+
+  // ---- diamond: 16-sided, flat facets (that is what makes it sparkle).
+  // Letters are laid in horizontal rows that wrap around the stone, so the
+  // name reads left->right from whichever side you look.
+  const m = 16, seg = TAU / m;
+  const sq = stoneSeq || bandSeq, Ls = sq ? sq.length : 1;
+  const facetN = [], facetR = [];
+  for (let i = 0; i < m; i++) {
+    const a0 = seg * i, a1 = seg * (i + 1);
+    const g0 = [GIRDLE_R * Math.cos(a0), GIRDLE_Y, GIRDLE_R * Math.sin(a0)];
+    const g1 = [GIRDLE_R * Math.cos(a1), GIRDLE_Y, GIRDLE_R * Math.sin(a1)];
+    const t0 = [TABLE_R * Math.cos(a0), TABLE_Y, TABLE_R * Math.sin(a0)];
+    let crown = cross(sub(g1, g0), sub(t0, g0)); if (crown[1] < 0) crown = crown.map(x => -x);
+    let pav = cross(sub([0, CULET_Y, 0], g0), sub(g1, g0)); if (pav[1] > 0) pav = pav.map(x => -x);
+    facetN.push({ crown, pav });
+    facetR.push({ crown: srand(), pav: srand() });
+  }
+  const ringRow = (y, r, part, row) => {
+    const perim = m * 2 * r * Math.sin(seg / 2);
+    let cnt = Math.max(3, Math.round(perim / SU));
+    if (sq && cnt >= Ls) cnt = Math.round(cnt / Ls) * Ls;      // the word never breaks at the seam
+    for (let k = 0; k < cnt; k++) {
+      const phi = -TAU * k / cnt;                              // decreasing angle = left->right from the front
+      const ph = mod(phi, TAU), i = Math.min(m - 1, (ph / seg) | 0);
+      const rp = r * Math.cos(seg / 2) / Math.cos(ph - seg * i - seg / 2);   // on the polygon edge
+      const p = [rp * Math.cos(phi), y, rp * Math.sin(phi)];
+      if (part === "table") add(p, [0, 1, 0], 2, k + row * 2, facetR[i].crown);
+      else add(p, facetN[i][part], 2, k + row * 2, facetR[i][part]);
+    }
+  };
+  let row = 0;
+  const nPav = Math.max(2, Math.round((GIRDLE_Y - CULET_Y) / SL));
+  for (let j = 1; j <= nPav; j++, row++) {
+    const y = CULET_Y + (GIRDLE_Y - CULET_Y) * j / nPav;
+    ringRow(y, GIRDLE_R * j / nPav, "pav", row);
+  }
+  const nCr = Math.max(2, Math.round((TABLE_Y - GIRDLE_Y) / SL));
+  for (let j = 1; j <= nCr; j++, row++) {
+    const f = j / nCr;
+    ringRow(GIRDLE_Y + (TABLE_Y - GIRDLE_Y) * f, GIRDLE_R + (TABLE_R - GIRDLE_R) * f, "crown", row);
+  }
+  for (let r = TABLE_R - SL; r > SL * 0.5; r -= SL, row++) ringRow(TABLE_Y + 0.001, r, "table", row);
+  add([0, TABLE_Y + 0.001, 0], [0, 1, 0], 2, row * 2);
+
+  const n = K.length;
+  const G = {
+    n,
+    px: new Float32Array(n), py: new Float32Array(n), pz: new Float32Array(n),
+    nx: new Float32Array(n), ny: new Float32Array(n), nz: new Float32Array(n),
+    kind: Uint8Array.from(K), ord: Float32Array.from(O), rnd: Float32Array.from(Rn),
+    ch: null,
+  };
+  for (let i = 0; i < n; i++) {
+    G.px[i] = P[3 * i]; G.py[i] = P[3 * i + 1]; G.pz[i] = P[3 * i + 2];
+    G.nx[i] = Nn[3 * i]; G.ny[i] = Nn[3 * i + 1]; G.nz[i] = Nn[3 * i + 2];
+  }
+  if (bandSeq) {
+    const st = stoneSeq || bandSeq;
+    G.ch = new Array(n);
+    for (let i = 0; i < n; i++) {
+      const sq = K[i] === 2 ? st : bandSeq;
+      G.ch[i] = sq[mod(I[i], sq.length)];
+    }
+  }
+  return G;
+}
+
+// =====================================================================
+//  the source code that types itself in the editor
+// =====================================================================
+function makeCode(name, stone) {
+  const pyStr = (s) => '"' + (s || "").replace(/\\/g, "\\\\").replace(/"/g, '\\"') + '"';
+  return String.raw`"""art.py: an engagement ring, drawn in letters.
+every point on its surface carries one letter of a name.
+zoom in close enough and you can read it."""
+
+import numpy as np
+
+NAME = ${pyStr(name)}${" ".repeat(Math.max(1, 22 - pyStr(name).length))}# the band is written with this
+STONE = ${pyStr(stone)}${" ".repeat(Math.max(1, 21 - pyStr(stone).length))}# the diamond, letter by letter
+SEP = "·"
+
+TAU = 2 * np.pi
+R_BAND, A, B = 1.0, 0.10, 0.16           # radius, half thickness, half width
+CULET_Y, GIRDLE_Y, TABLE_Y = 1.12, 1.55, 1.78
+GIRDLE_R, TABLE_R = 0.42, 0.27
+SU, SL = 0.05, 0.075                     # one letter wide, one line tall
+TURN = 12.0                              # seconds per full turn
+
+
+def letters(word):
+    """the name, upper-cased, repeated forever"""
+    s = list(word.upper().replace(" ", SEP)) + [SEP]
+    return lambda i: s[i % len(s)]
+
+
+# -- the band: an elliptic tube, written in rows ----------------------
+
+def band():
+    nu = round(TAU * R_BAND / SU)
+    nv = 18
+    u, v = np.meshgrid(np.linspace(0, TAU, nu, endpoint=False),
+                       np.linspace(0, TAU, nv, endpoint=False))
+    u, v = u.ravel(), v.ravel()
+    er = np.stack([np.cos(u), np.sin(u), 0 * u], 1)
+    ez = np.array([0.0, 0.0, 1.0])
+    p = (R_BAND + A * np.cos(v))[:, None] * er + (B * np.sin(v))[:, None] * ez
+    n = (np.cos(v) / A)[:, None] * er + (np.sin(v) / B)[:, None] * ez
+    n /= np.linalg.norm(n, axis=1, keepdims=True)
+    col = np.tile(np.arange(nu), nv)
+    row = np.repeat(np.arange(nv), nu)
+    idx = np.where(np.sin(v) >= 0, col, -col) + row * 3     # reads left to right
+    return p, n, idx
+
+
+# -- the diamond: 64 facets, each with its own flat normal ------------
+#    (that is what makes it sparkle)
+
+def diamond():
+    P, N = [], []
+
+    def facet(corners, n):
+        a, b, c = corners
+        ku = int(np.ceil(np.linalg.norm(b - a) / SU)) + 1
+        kv = int(np.ceil(np.linalg.norm(c - a) / SL)) + 1
+        u, v = [x.ravel() for x in np.meshgrid(np.linspace(0, 1, ku), np.linspace(0, 1, kv))]
+        keep = u + v <= 1
+        pts = a + (b - a) * u[keep, None] + (c - a) * v[keep, None]
+        P.append(pts), N.append(np.tile(n / np.linalg.norm(n), (len(pts), 1)))
+
+    m = 16
+    for i in range(m):
+        a0, a1 = TAU * i / m, TAU * (i + 1) / m
+        g0 = np.array([GIRDLE_R * np.cos(a0), GIRDLE_Y, GIRDLE_R * np.sin(a0)])
+        g1 = np.array([GIRDLE_R * np.cos(a1), GIRDLE_Y, GIRDLE_R * np.sin(a1)])
+        t0 = np.array([TABLE_R * np.cos(a0), TABLE_Y, TABLE_R * np.sin(a0)])
+        t1 = np.array([TABLE_R * np.cos(a1), TABLE_Y, TABLE_R * np.sin(a1)])
+        culet = np.array([0, CULET_Y, 0])
+        crown = np.cross(g1 - g0, t0 - g0)
+        crown *= np.sign(crown[1]) or 1
+        facet((g0, g1, t0), crown)
+        facet((t0, t1, g1), crown * [1, 1.15, 1])
+        pav = np.cross(culet - g0, g1 - g0)
+        pav *= -np.sign(pav[1]) or 1
+        facet((g0, g1, culet), pav)
+        facet((np.array([0, TABLE_Y, 0]), t0, t1), np.array([0, 1.0, 0]))
+    P, N = np.concatenate(P), np.concatenate(N)
+    row = np.round((P[:, 1] - CULET_Y) / SL)
+    order = np.lexsort((-np.arctan2(P[:, 2], P[:, 0]), row))
+    idx = np.empty(len(P), int)
+    idx[order] = np.arange(len(P))
+    return P, N, idx
+
+
+def prongs():
+    P, N = [], []
+    for i in range(4):
+        a = TAU * (i + 0.5) / 4
+        base = np.array([0.10 * np.cos(a), R_BAND + A - 0.03, 0.10 * np.sin(a)])
+        tip = np.array([(GIRDLE_R + 0.025) * np.cos(a), GIRDLE_Y + 0.07, (GIRDLE_R + 0.025) * np.sin(a)])
+        nl = int(np.linalg.norm(tip - base) / SL)
+        u, phi = [x.ravel() for x in np.meshgrid(np.linspace(0, 1, nl), np.linspace(0, TAU, 5))]
+        d = (tip - base) / np.linalg.norm(tip - base)
+        s = np.cross(d, [0, 0, 1.0]); s /= np.linalg.norm(s)
+        w = np.cross(s, d)
+        n = np.cos(phi)[:, None] * s + np.sin(phi)[:, None] * w
+        P.append(base + u[:, None] * (tip - base) + n * 0.032), N.append(n)
+    return np.concatenate(P), np.concatenate(N)
+
+
+BAND_P, BAND_N, BAND_I = band()
+GEM_P, GEM_N, GEM_I = diamond()
+PRONG_P, PRONG_N = prongs()
+RING_P = np.concatenate([BAND_P, PRONG_P, GEM_P])
+RING_N = np.concatenate([BAND_N, PRONG_N, GEM_N])
+KIND = np.concatenate([np.zeros(len(BAND_P)), np.ones(len(PRONG_P)), np.full(len(GEM_P), 2)])
+
+band_ch, stone_ch = letters(NAME), letters(STONE or NAME)
+CHARS = ([band_ch(i) for i in BAND_I]
+         + [band_ch(i) for i in range(len(PRONG_P))]
+         + [stone_ch(i) for i in GEM_I])
+
+
+# -- light: a key light, a moving rim light, and a sparkle light -------
+
+def lights(t):
+    key = np.array([0.0, 0.8, 0.6])
+    rim = np.array([np.cos(t * 0.9), 0.5, np.sin(t * 0.9)])
+    return key / np.linalg.norm(key), rim / np.linalg.norm(rim)
+
+
+def spin(t):
+    return TAU * max(t - DRAW[1] - 0.6, 0) / TURN            # starts once it is whole
+
+
+def rot_y(p, a):
+    c, s = np.cos(a), np.sin(a)
+    return np.stack([c * p[:, 0] + s * p[:, 2], p[:, 1], -s * p[:, 0] + c * p[:, 2]], 1)
+
+
+def draw_order():
+    """when each point appears: the band draws itself from the bottom up,
+    then the prongs rise, then the diamond fills in from its tip"""
+    p = RING_P
+    up_band = np.abs(np.angle(np.exp(1j * (np.arctan2(p[:, 1], p[:, 0]) + TAU / 4)))) / np.pi
+    prong = 1.0 + (p[:, 1] - R_BAND) / (TABLE_Y - R_BAND) * 0.25
+    gem = 1.25 + (p[:, 1] - CULET_Y) / (TABLE_Y - CULET_Y) * 0.45
+    return np.select([KIND == 0, KIND == 1], [up_band, prong], gem)
+
+
+ORDER = draw_order()                               # 0 .. 1.7
+DRAW = (0.3, 5.6)                                  # the sweep runs slowly over these seconds
+
+
+def smooth(x):
+    x = np.clip(x, 0, 1)
+    return x * x * (3 - 2 * x)
+
+
+def gather(t):
+    """sweep: points appear where the drawing light has passed"""
+    head = (t - DRAW[0]) / (DRAW[1] - DRAW[0]) * ORDER.max()
+    k = smooth((head - ORDER) / 0.06)
+    return k, np.abs(head - ORDER) < 0.035         # the bright edge of the pen
+
+
+def shade(n, t):
+    key, rim = lights(t)
+    h = key + [0, 0, 1.0]
+    h /= np.linalg.norm(h)
+    diff = np.clip(n @ key, 0, 1)
+    spec = np.clip(n @ h, 0, 1) ** np.where(KIND == 2, 10, 36)
+    return 0.09 + 0.55 * diff + 0.22 * np.clip(n @ rim, 0, 1) + 0.85 * spec
+
+
+def frame(t, cols=120, rows=60):
+    a = spin(t)
+    p, n = rot_y(RING_P, a), rot_y(RING_N, a)
+    k, pen = gather(t)
+    b = shade(n, t) * k + pen * 1.3
+    x = (cols / 2 + p[:, 0] * cols * 0.165).astype(int)
+    y = (rows / 2 - (p[:, 1] - 0.34) * rows * 0.33).astype(int)
+    screen = np.full((rows, cols), " ")
+    depth = np.full((rows, cols), -np.inf)
+    for i in np.argsort(p[:, 2]):                  # far to near
+        if n[i, 2] < 0.06 or b[i] < 0.02:
+            continue
+        if 0 <= x[i] < cols and 0 <= y[i] < rows and p[i, 2] > depth[y[i], x[i]]:
+            depth[y[i], x[i]] = p[i, 2]
+            screen[y[i], x[i]] = CHARS[i]
+    return "\n".join("".join(r) for r in screen)
+
+
+if __name__ == "__main__":
+    import time
+    t0 = time.time()
+    while True:
+        print("\x1b[H" + frame(time.time() - t0), flush=True)
+        time.sleep(1 / 30)
+`;
+}
+
+const KW = new Set(["def", "return", "for", "in", "if", "else", "elif", "or", "and", "not", "import", "as",
+  "lambda", "while", "True", "False", "None", "from", "nonlocal", "with", "is", "int"]);
+
+function classify(code) {
+  const cls = new Uint8Array(code.length);
+  const re = /("""[\s\S]*?(?:"""|$))|("(?:[^"\\\n]|\\.)*")|('(?:[^'\\\n]|\\.)*')|(#[^\n]*)|(\b\d+(?:\.\d+)?\b)|([A-Za-z_]\w*)/g;
+  let m, prev = "";
+  while ((m = re.exec(code))) {
+    let c = 0;
+    const s = m.index, e = s + m[0].length;
+    if (m[1] || m[2] || m[3]) c = 3;
+    else if (m[4]) c = 5;
+    else if (m[5]) c = 4;
+    else {
+      const w = m[6];
+      if (prev === "def") c = 2;
+      else if (KW.has(w)) c = 1;
+      else if (w === "np") c = 6;
+      else if (/^[A-Z][A-Z0-9_]+$/.test(w)) c = 7;
+      else if (code[e] === "(") c = 8;
+    }
+    prev = m[6] || "";
+    cls.fill(c, s, e);
+  }
+  return cls;
+}
+
+// =====================================================================
+//  state
+// =====================================================================
+const cv = document.getElementById("cv");
+const ctx = cv.getContext("2d");
+const small = document.createElement("canvas"), sctx = small.getContext("2d");
+const tiny = document.createElement("canvas"), tctx = tiny.getContext("2d");
+const inName = document.getElementById("inName"), inStone = document.getElementById("inStone");
+const codeEl = document.getElementById("code"), editorEl = document.getElementById("editor");
+const hintEl = document.getElementById("hint");
+
+let W = 1, H = 1, DPR = 1;
+let NAME = "", STONE = "", G = null;
+let t = 0, lastNow = 0, fpsS = 60;
+let yaw = 0, pitch = PITCH0, zoom = 1, panX = 0, panY = 0;
+let lastInteract = -1e9, resetting = false, dragging = false;
+let sparks = [], glints = [], penGlintT = 0;
+
+let sx, sy, sz, bb, spv, vis;
+function allocPoints(n) {
+  sx = new Float32Array(n); sy = new Float32Array(n); sz = new Float32Array(n);
+  bb = new Float32Array(n); spv = new Float32Array(n); vis = new Uint8Array(n);
+}
+
+// draw list, bucketed by colour so fillStyle changes rarely
+const LEV = 24;
+const PAL = [
+  [236, 236, 242, 1.0],   // 0 band
+  [224, 238, 255, 1.0],   // 1 diamond
+  [255, 246, 228, 1.0],   // 2 pen / sparks
+  [205, 205, 215, 0.08],  // 3 reflection
+  [190, 190, 202, 0.85],  // 4 orbits
+  [165, 165, 178, 0.55],  // 5 dust
+];
+const STYLES = [];
+PAL.forEach(([r, g, b, a]) => { for (let l = 0; l < LEV; l++) STYLES.push(`rgba(${r},${g},${b},${((l + 1) / LEV * a).toFixed(3)})`); });
+const CAP = 16000;
+const dX = new Float32Array(CAP), dY = new Float32Array(CAP), dKey = new Uint16Array(CAP), dOrd = new Int32Array(CAP);
+const dStr = new Array(CAP);
+const cnt = new Int32Array(PAL.length * LEV + 1);
+let dn = 0;
+function push(x, y, ch, pal, b) {
+  if (dn >= CAP || b < 0.02) return;
+  const l = Math.min(LEV - 1, (Math.min(1, b) * LEV) | 0);
+  dX[dn] = x; dY[dn] = y; dStr[dn] = ch; dKey[dn] = pal * LEV + l; dn++;
+}
+function flush(range) {
+  cnt.fill(0);
+  for (let i = 0; i < dn; i++) cnt[dKey[i] + 1]++;
+  for (let k = 0; k < cnt.length - 1; k++) cnt[k + 1] += cnt[k];
+  for (let i = 0; i < dn; i++) dOrd[cnt[dKey[i]]++] = i;
+  let last = -1;
+  for (let j = 0; j < dn; j++) {
+    const i = dOrd[j];
+    if (dKey[i] !== last) { last = dKey[i]; ctx.fillStyle = STYLES[last]; }
+    ctx.fillText(dStr[i], dX[i], dY[i]);
+  }
+  dn = 0;
+}
+function asciiChar(b, r) {
+  if (r < 0.2) return SYMS[(r / 0.2 * SYMS.length) | 0];
+  return RAMP[Math.min(RAMP.length - 1, (b * RAMP.length) | 0)];
+}
+
+// orbits & dust
+const ORBITS = [
+  { r: 1.95, ax: 0.38, az: 0.62, sp: 0.22, n: 120, a: 1.0 },
+  { r: 1.95, ax: 0.38, az: -0.62, sp: -0.19, n: 120, a: 1.0 },
+  { r: 2.45, ax: 0.16, az: 0.05, sp: 0.12, n: 140, a: 0.55 },
+];
+seed = 99;
+const DUST = Array.from({ length: 240 }, () => ({
+  x: srand(), y: srand(), ph: srand() * TAU, sp: 0.4 + srand() * 1.6,
+  a: 0.15 + srand() * 0.55, ch: ".·.·:'+`·."[(srand() * 10) | 0], v: 0.002 + srand() * 0.006,
+}));
+
+let zbuf = new Float32Array(1), gw = 1, gh = 1;
+
+// =====================================================================
+//  names, url, rebuild
+// =====================================================================
+let code = "", cls = null, lineStart = [], typed = 0, typeAcc = 0, scrollL = 0, edDirty = true;
+function setNames(name, stone, fromInput) {
+  NAME = name || ""; STONE = stone || "";
+  const bs = seqOf(NAME), ss = seqOf(STONE);
+  G = buildGeometry(bs, ss);
+  allocPoints(G.n);
+  const oldLen = code.length;
+  code = makeCode(NAME.toUpperCase(), STONE.toUpperCase());
+  cls = classify(code);
+  lineStart = [0];
+  for (let i = 0; i < code.length; i++) if (code[i] === "\n") lineStart.push(i + 1);
+  if (oldLen && typed > 200) typed = Math.min(code.length, typed + code.length - oldLen);
+  edDirty = true;
+  if (fromInput) {
+    const u = new URL(location.href);
+    NAME ? u.searchParams.set("nome", NAME) : u.searchParams.delete("nome");
+    STONE ? u.searchParams.set("pedra", STONE) : u.searchParams.delete("pedra");
+    history.replaceState(null, "", u);
+  }
+}
+function replay() {
+  t = 0; yaw = 0; sparks = []; glints = []; typed = 0; typeAcc = 0; scrollL = 0; edDirty = true;
+}
+
+// =====================================================================
+//  editor
+// =====================================================================
+const esc = (s) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+let lineH = 20, edH = 100;
+function measureEditor() {
+  const fs = parseFloat(getComputedStyle(codeEl).fontSize) || 12;
+  lineH = fs * 1.6; edH = editorEl.clientHeight; edDirty = true;
+}
+function lineOf(pos) {
+  let lo = 0, hi = lineStart.length - 1;
+  while (lo < hi) { const mid = (lo + hi + 1) >> 1; if (lineStart[mid] <= pos) lo = mid; else hi = mid - 1; }
+  return lo;
+}
+function updateEditor(dt) {
+  // typing: ~110 chars/s, a short pause on each newline, indentation appears at once
+  typeAcc += dt * 110;
+  let moved = false;
+  while (typeAcc >= 1 && typed < code.length) {
+    const c = code[typed++]; typeAcc -= 1; moved = true;
+    if (c === "\n") { typeAcc -= 2; while (code[typed] === " ") typed++; }
+  }
+  if (typed >= code.length) typeAcc = 0;
+  const cur = lineOf(typed);
+  const visN = Math.ceil(edH / lineH) + 2;
+  const target = Math.max(0, cur - Math.floor(visN * 0.32));
+  const prev = scrollL;
+  scrollL += (target - scrollL) * Math.min(1, dt * 5);
+  if (Math.abs(target - scrollL) < 0.002) scrollL = target;
+  if (!moved && !edDirty && Math.abs(prev - scrollL) < 1e-4) return;
+  edDirty = false;
+  const first = Math.floor(scrollL);
+  let html = "";
+  for (let l = first; l < Math.min(lineStart.length, first + visN + 1); l++) {
+    const s = lineStart[l], eFull = l + 1 < lineStart.length ? lineStart[l + 1] - 1 : code.length;
+    const isCur = l === cur;
+    const e = Math.min(eFull, typed);
+    let tx = "";
+    if (s < e) {
+      let i = s;
+      while (i < e) {
+        const c = cls[i]; let j = i + 1;
+        while (j < e && cls[j] === c) j++;
+        tx += `<span class="c${c}">${esc(code.slice(i, j))}</span>`;
+        i = j;
+      }
+    }
+    if (isCur) tx += `<span class="cursor"> </span>`;
+    if (l > cur) break;
+    html += `<div class="ln${isCur ? " cur" : ""}"><span class="no">${l + 1}</span><span>${tx}</span></div>`;
+  }
+  codeEl.innerHTML = html;
+  codeEl.style.transform = `translateY(${(-(scrollL - first) * lineH).toFixed(2)}px)`;
+}
+
+// =====================================================================
+//  render
+// =====================================================================
+function resize() {
+  const r = cv.getBoundingClientRect();
+  DPR = Math.min(2, window.devicePixelRatio || 1);
+  W = Math.max(1, Math.round(r.width * DPR)); H = Math.max(1, Math.round(r.height * DPR));
+  cv.width = W; cv.height = H;
+  small.width = Math.max(1, W >> 2); small.height = Math.max(1, H >> 2);
+  tiny.width = Math.max(1, (W / 12) | 0); tiny.height = Math.max(1, (H / 12) | 0);
+  measureEditor();
+}
+
+function star(x, y, len, e) {
+  if (e <= 0.01 || len < 2) return;
+  const lw = Math.max(1, DPR * 0.9);
+  const ray = (dx, dy, l, a) => {
+    const g = ctx.createLinearGradient(x, y, x + dx * l, y + dy * l);
+    g.addColorStop(0, `rgba(255,255,255,${a})`);
+    g.addColorStop(1, "rgba(255,255,255,0)");
+    ctx.strokeStyle = g;
+    ctx.beginPath(); ctx.moveTo(x, y); ctx.lineTo(x + dx * l, y + dy * l); ctx.stroke();
+  };
+  ctx.lineWidth = lw;
+  ray(0, -1, len, e); ray(0, 1, len, e);
+  ray(-1, 0, len * 0.6, e * 0.9); ray(1, 0, len * 0.6, e * 0.9);
+  const d = Math.SQRT1_2;
+  ray(d, d, len * 0.28, e * 0.6); ray(-d, d, len * 0.28, e * 0.6);
+  ray(d, -d, len * 0.28, e * 0.6); ray(-d, -d, len * 0.28, e * 0.6);
+  const rg = ctx.createRadialGradient(x, y, 0, x, y, len * 0.12);
+  rg.addColorStop(0, `rgba(255,255,255,${0.9 * e})`);
+  rg.addColorStop(1, "rgba(255,255,255,0)");
+  ctx.fillStyle = rg;
+  ctx.beginPath(); ctx.arc(x, y, len * 0.12, 0, TAU); ctx.fill();
+}
+
+function frame(now) {
+  requestAnimationFrame(frame);
+  const dt = Math.min(0.05, Math.max(0, (now - lastNow) / 1000)) || 0.016;
+  lastNow = now;
+  t += dt;
+  fpsS += (1 / Math.max(dt, 1e-3) - fpsS) * 0.05;
+
+  // ---- camera
+  if (resetting) {
+    const k = Math.min(1, dt * 6);
+    zoom += (1 - zoom) * k; panX += -panX * k; panY += -panY * k; pitch += (PITCH0 - pitch) * k;
+    if (Math.abs(zoom - 1) < 0.002 && Math.abs(panX) < 0.5 && Math.abs(panY) < 0.5) { zoom = 1; panX = panY = 0; resetting = false; }
+  } else if (zoom < 1.02) { const k = Math.min(1, dt * 4); panX -= panX * k; panY -= panY * k; }
+  const idle = now - lastInteract;
+  if (t > DRAW1 + 0.6 && !dragging) {
+    const ease = Math.min(1, Math.max(0, (idle - 1200) / 1500));
+    yaw += dt * TAU / TURN * ease / (1 + (zoom - 1) * 0.9);
+  }
+  const dimK = 1 / (1 + (zoom - 1) * 0.6);
+  const zf = Math.min(1, (zoom - 1) / 3);   // 0 far .. 1 close: tighter letters, only the faces that look at you
+
+  const S = Math.min(W, H) * 0.165 * zoom;
+  const cx = W / 2 + panX, cy = H * 0.47 + panY;
+  const cyw = Math.cos(yaw), syw = Math.sin(yaw), cp = Math.cos(pitch), sp = Math.sin(pitch);
+  const head = (t - DRAW0) / (DRAW1 - DRAW0) * ORDMAX;
+  const building = t < DRAW1 + 0.3;
+
+  // lights (view space)
+  let kx = 0, ky = 0.8, kz = 0.6; { const l = Math.hypot(kx, ky, kz); kx /= l; ky /= l; kz /= l; }
+  let rx = Math.cos(t * 0.9), ry = 0.5, rz = Math.sin(t * 0.9); { const l = Math.hypot(rx, ry, rz); rx /= l; ry /= l; rz /= l; }
+  let hx = kx, hy = ky, hz = kz + 1; { const l = Math.hypot(hx, hy, hz); hx /= l; hy /= l; hz /= l; }
+
+  // depth grid, one cell per letter
+  const cell = Math.max(2, SU * S);
+  gw = Math.ceil(W / cell) + 2; gh = Math.ceil(H / cell) + 2;
+  if (zbuf.length < gw * gh) zbuf = new Float32Array(gw * gh);
+  zbuf.fill(-1e9, 0, gw * gh);
+  const cellOf = (X, Y) => Math.max(0, (Y / cell) | 0) * gw + Math.max(0, (X / cell) | 0);
+
+  const { n, px, py, pz, nx, ny, nz, kind, ord, rnd } = G;
+
+  // ---- pass 1: transform, cull, shade, fill depth
+  for (let i = 0; i < n; i++) {
+    vis[i] = 0;
+    const o = ord[i];
+    if (head <= o) continue;
+    let k = (head - o) / 0.06;
+    k = k >= 1 ? 1 : k * k * (3 - 2 * k);
+    const kd = kind[i];
+    const nx0 = nx[i], ny0 = ny[i], nz0 = nz[i];
+    const nx1 = nx0 * cyw + nz0 * syw, nz1 = -nx0 * syw + nz0 * cyw;
+    const ny2 = ny0 * cp - nz1 * sp, nz2 = ny0 * sp + nz1 * cp;
+    if (nz2 < (kd === 0 ? 0.06 + 0.32 * zf : kd === 1 ? -0.15 + 0.3 * zf : 0.22 * zf)) continue;
+    const x0 = px[i], y0 = py[i] - YC, z0 = pz[i];
+    const x1 = x0 * cyw + z0 * syw, z1 = -x0 * syw + z0 * cyw;
+    const y2 = y0 * cp - z1 * sp, z2 = y0 * sp + z1 * cp;
+    const pr = CAM / (CAM - z2);
+    const X = cx + x1 * pr * S, Y = cy - y2 * pr * S;
+    if (X < -cell || X > W + cell || Y < -cell || Y > H + cell) continue;
+    const diff = Math.max(0, nx1 * kx + ny2 * ky + nz2 * kz);
+    const hd = Math.max(0, nx1 * hx + ny2 * hy + nz2 * hz);
+    let b, spec;
+    if (kd === 2) {
+      spec = Math.pow(hd, 10);
+      const fl = Math.pow(Math.max(0, Math.sin(t * 2.3 + rnd[i] * 40 + yaw * 7)), 16);
+      b = 0.16 + 0.30 * diff + 0.75 * spec + 0.40 * fl;
+    } else {
+      const rm = Math.max(0, nx1 * rx + ny2 * ry + nz2 * rz);
+      spec = Math.pow(hd, 36);
+      b = 0.08 + 0.52 * diff + 0.20 * rm + 0.70 * spec;
+    }
+    sx[i] = X; sy[i] = Y; sz[i] = z2; bb[i] = b * k; spv[i] = spec * k; vis[i] = 1;
+    const ci = cellOf(X, Y);
+    if (z2 > zbuf[ci]) zbuf[ci] = z2;
+  }
+
+  // ---- clear + dust
+  ctx.globalCompositeOperation = "source-over";
+  ctx.fillStyle = "#000";
+  ctx.fillRect(0, 0, W, H);
+  ctx.textAlign = "center"; ctx.textBaseline = "middle";
+  const dustK = Math.min(1, t / 2);
+  ctx.font = `${Math.round(9 * DPR)}px "JetBrains Mono", ui-monospace, Consolas, monospace`;
+  for (const d of DUST) {
+    d.y -= d.v * dt * 0.15; if (d.y < -0.02) d.y += 1.04;
+    const a = d.a * (0.55 + 0.45 * Math.sin(t * d.sp + d.ph)) * dustK;
+    const ch = G.ch && d.a > 0.62 ? G.ch[(d.ph * 1000 | 0) % G.n] : d.ch;
+    push(d.x * W, d.y * H, ch, 5, a);
+  }
+  flush();
+
+  // ---- letters
+  ctx.font = `600 ${Math.max(4, SU * S * (1.7 - 0.55 * zf)).toFixed(1)}px "JetBrains Mono", ui-monospace, Consolas, monospace`;
+  const EPS = 0.12;
+  const cands = [], pens = [];
+  let letters = 0;
+  // reflection on the floor (faint, every other band point)
+  for (let i = 0; i < n; i += 2) {
+    if (kind[i] !== 0 || head <= ord[i]) continue;
+    const x0 = px[i], ym = 2 * FLOOR - py[i], z0 = pz[i];
+    const fade = 1 - (FLOOR - ym) / 1.3;
+    if (fade <= 0) continue;
+    const y0 = ym - YC;
+    const x1 = x0 * cyw + z0 * syw, z1 = -x0 * syw + z0 * cyw;
+    const y2 = y0 * cp - z1 * sp, z2 = y0 * sp + z1 * cp;
+    const pr = CAM / (CAM - z2);
+    const X = cx + x1 * pr * S, Y = cy - y2 * pr * S;
+    if (X < 0 || X > W || Y < 0 || Y > H) continue;
+    push(X, Y, G.ch ? G.ch[i] : asciiChar(0.4, rnd[i]), 3, fade * fade);
+  }
+  for (let i = 0; i < n; i++) {
+    if (!vis[i]) continue;
+    if (sz[i] < zbuf[cellOf(sx[i], sy[i])] - EPS) continue;
+    let b = bb[i], pal = kind[i] === 2 ? 1 : 0;
+    if (building && Math.abs(head - ord[i]) < 0.035) { b = 1; pal = 2; if (pens.length < 400) pens.push(i); }
+    if (b < 0.02) continue;
+    push(sx[i], sy[i], G.ch ? G.ch[i] : asciiChar(b, rnd[i]), pal, b);
+    letters++;
+    if (spv[i] > 0.8 && cands.length < 600) cands.push(i);
+  }
+
+  // ---- sparks thrown off by the pen while it draws
+  if (building && head > 0) {
+    for (let tries = 0; tries < 6 && pens.length; tries++) {
+      if (Math.random() > 0.55) continue;
+      const i = pens[(Math.random() * pens.length) | 0];
+      const s = 0.25 + Math.random() * 0.5;
+      sparks.push({
+        x: px[i], y: py[i], z: pz[i],
+        vx: nx[i] * s + (Math.random() - 0.5) * 0.4, vy: ny[i] * s + (Math.random() - 0.3) * 0.4, vz: nz[i] * s + (Math.random() - 0.5) * 0.4,
+        age: 0, life: 0.5 + Math.random() * 0.9,
+        ch: G.ch ? G.ch[i] : "*+·.'"[(Math.random() * 5) | 0],
+      });
+    }
+  }
+  if (sparks.length > 400) sparks.splice(0, sparks.length - 400);
+  sparks = sparks.filter(s => (s.age += dt) < s.life);
+  for (const s of sparks) {
+    s.x += s.vx * dt; s.y += s.vy * dt; s.z += s.vz * dt;
+    const f = 1 - dt * 1.2; s.vx *= f; s.vy *= f; s.vz *= f;
+    const y0 = s.y - YC, x1 = s.x * cyw + s.z * syw, z1 = -s.x * syw + s.z * cyw;
+    const y2 = y0 * cp - z1 * sp, z2 = y0 * sp + z1 * cp, pr = CAM / (CAM - z2);
+    push(cx + x1 * pr * S, cy - y2 * pr * S, s.ch, 2, (1 - s.age / s.life) * 0.9 * dimK);
+  }
+
+  // ---- orbits: dotted rings that wrap around the ring once it is whole
+  const ok = Math.min(1, Math.max(0, (t - 4.6) / 2.4)) * dimK;
+  if (ok > 0) {
+    ORBITS.forEach((O, oi) => {
+      const cax = Math.cos(O.ax), sax = Math.sin(O.ax), caz = Math.cos(O.az), saz = Math.sin(O.az);
+      for (let j = 0; j < O.n; j++) {
+        const th = TAU * j / O.n + t * O.sp;
+        const ox = O.r * Math.cos(th), oz0 = O.r * Math.sin(th);
+        const oy = -oz0 * sax, oz = oz0 * cax;
+        const wx = ox * caz - oy * saz, wy = ox * saz + oy * caz + 0.08, wz = oz;
+        const x1 = wx * cyw + wz * syw, z1 = -wx * syw + wz * cyw;
+        const y2 = wy * cp - z1 * sp, z2 = wy * sp + z1 * cp, pr = CAM / (CAM - z2);
+        const X = cx + x1 * pr * S, Y = cy - y2 * pr * S;
+        if (X < 0 || X > W || Y < 0 || Y > H) continue;
+        if (zbuf[cellOf(X, Y)] > z2 + 0.05) continue;       // hidden behind the ring
+        const wave = Math.pow(Math.max(0, Math.sin(th * 2 - t * 1.4 + oi * 2)), 6);
+        const b = (0.1 + 0.75 * wave) * ok * O.a * (0.75 + 0.25 * z2 / O.r);
+        const ch = G.ch && j % 7 === 0 ? G.ch[(j * 31 + oi * 7) % G.n] : (j % 11 === 0 ? "+" : "·");
+        push(X, Y, ch, 4, b);
+      }
+    });
+  }
+  flush();
+
+  // ---- bloom: cheap glow from a down-scaled copy
+  const bloom = 0.38 * dimK;
+  if (bloom > 0.03) {
+    sctx.globalCompositeOperation = "copy"; sctx.imageSmoothingEnabled = true;
+    sctx.drawImage(cv, 0, 0, small.width, small.height);
+    tctx.globalCompositeOperation = "copy"; tctx.imageSmoothingEnabled = true;
+    tctx.drawImage(small, 0, 0, tiny.width, tiny.height);
+    ctx.globalCompositeOperation = "lighter";
+    ctx.imageSmoothingEnabled = true;
+    ctx.globalAlpha = bloom * 0.3; ctx.drawImage(small, 0, 0, W, H);
+    ctx.globalAlpha = bloom * 0.6; ctx.drawImage(tiny, 0, 0, W, H);
+    ctx.globalAlpha = 1;
+  }
+
+  // ---- glints
+  ctx.globalCompositeOperation = "lighter";
+  if (cands.length && glints.length < 6 && Math.random() < dt * 3.2) {
+    const i = cands[(Math.random() * cands.length) | 0];
+    glints.push({ i, x: sx[i], y: sy[i], age: 0, life: 0.45 + Math.random() * 0.55, s: 0.45 + Math.random() * 0.8 });
+  }
+  penGlintT -= dt;
+  if (building && pens.length && penGlintT <= 0) {
+    penGlintT = 0.3 + Math.random() * 0.3;
+    const i = pens[(Math.random() * pens.length) | 0];
+    glints.push({ i, x: sx[i], y: sy[i], age: 0, life: 0.5, s: 0.8 });
+  }
+  const gBase = Math.min(W, H) * 0.085;
+  glints = glints.filter(g => (g.age += dt) < g.life);
+  for (const g of glints) {
+    if (vis[g.i]) { g.x = sx[g.i]; g.y = sy[g.i]; }
+    const e = Math.pow(Math.sin(Math.PI * g.age / g.life), 2);
+    star(g.x, g.y, gBase * g.s * e * (0.5 + 0.5 * dimK), 0.85 * e * dimK);
+  }
+  if (head > ORDMAX) {   // the steady flare on top of the stone
+    const y0 = TABLE_Y + 0.03 - YC;
+    const z2 = y0 * sp, y2 = y0 * cp, pr = CAM / (CAM - z2);
+    const e = Math.min(1, (head - ORDMAX) * 2) * (0.5 + 0.22 * Math.sin(t * 1.7) + 0.12 * Math.sin(t * 4.1));
+    star(cx, cy - y2 * pr * S, gBase * 0.95 * (0.5 + 0.5 * dimK), e * dimK);
+  }
+  ctx.globalCompositeOperation = "source-over";
+
+  // ---- HUD
+  const fs = Math.round((W < 700 * DPR ? 10 : 11) * DPR);
+  const pad = 18 * DPR;
+  ctx.font = `${fs}px "JetBrains Mono", ui-monospace, Consolas, monospace`;
+  ctx.textBaseline = "alphabetic";
+  ctx.textAlign = "right";
+  ctx.fillStyle = "#ff6b9a";
+  ctx.fillText(`t ${t.toFixed(2).padStart(5, "0")}s`, W - pad, pad + fs);
+  const tw = ctx.measureText(`t ${t.toFixed(2).padStart(5, "0")}s`).width;
+  ctx.beginPath(); ctx.arc(W - pad - tw - fs * 0.7, pad + fs * 0.65, fs * 0.2, 0, TAU); ctx.fill();
+  ctx.textAlign = "left";
+  ctx.fillStyle = "#77777f";
+  const handle = NAME ? NAME.toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "").replace(/\s+/g, "_") : "seu_nome";
+  const deg = (yaw * 180 / Math.PI).toFixed(2).padStart(6, "0");
+  const lh = fs * 1.45, by = H - pad - lh * 1.6;
+  ctx.fillText(`@${handle} · 2026`, pad + fs, by - lh * 2);
+  ctx.fillText(`rotation ${deg}°   glints ${String(cands.length).padStart(4, " ")}`, pad + fs, by - lh);
+  ctx.fillText(`letters ${letters.toLocaleString("en-US")}`, pad + fs, by);
+  ctx.fillStyle = "#9a9aa3";
+  ctx.fillText("$ py art.py", pad, H - pad * 0.7);
+  ctx.textAlign = "right";
+  ctx.fillText(`running · ${Math.round(fpsS)} fps${zoom > 1.05 ? `  ·  zoom ${zoom.toFixed(1)}×` : ""}`, W - pad, H - pad * 0.7);
+
+  updateEditor(dt);
+}
+
+// =====================================================================
+//  interaction: wheel / pinch zoom toward the pointer, drag to turn
+// =====================================================================
+function touch() { lastInteract = performance.now(); resetting = false; hintEl.style.opacity = 0; }
+function zoomAt(mx, my, f) {
+  const nzm = Math.min(8, Math.max(1, zoom * f));
+  f = nzm / zoom;
+  const ox = W / 2 + panX, oy = H * 0.47 + panY;
+  panX = mx - W / 2 - (mx - ox) * f;
+  panY = my - H * 0.47 - (my - oy) * f;
+  zoom = nzm;
+}
+cv.addEventListener("wheel", (e) => {
+  e.preventDefault(); touch();
+  const r = cv.getBoundingClientRect();
+  const d = e.deltaMode === 1 ? e.deltaY * 16 : e.deltaY;
+  zoomAt((e.clientX - r.left) * DPR, (e.clientY - r.top) * DPR, Math.exp(-d * 0.0018));
+}, { passive: false });
+
+const ptrs = new Map();
+let pinch = null, panMode = false;
+cv.addEventListener("contextmenu", (e) => e.preventDefault());
+cv.addEventListener("pointerdown", (e) => {
+  cv.setPointerCapture(e.pointerId); touch();
+  ptrs.set(e.pointerId, { x: e.clientX, y: e.clientY });
+  dragging = true; cv.classList.add("grabbing");
+  panMode = e.button === 2 || e.shiftKey;
+  if (ptrs.size === 2) {
+    const [a, b] = [...ptrs.values()];
+    pinch = { d: Math.hypot(a.x - b.x, a.y - b.y), mx: (a.x + b.x) / 2, my: (a.y + b.y) / 2 };
+  }
+});
+cv.addEventListener("pointermove", (e) => {
+  const p = ptrs.get(e.pointerId);
+  if (!p) return;
+  touch();
+  const dx = e.clientX - p.x, dy = e.clientY - p.y;
+  p.x = e.clientX; p.y = e.clientY;
+  const r = cv.getBoundingClientRect();
+  if (ptrs.size >= 2 && pinch) {
+    const [a, b] = [...ptrs.values()];
+    const d = Math.hypot(a.x - b.x, a.y - b.y), mx = (a.x + b.x) / 2, my = (a.y + b.y) / 2;
+    panX += (mx - pinch.mx) * DPR; panY += (my - pinch.my) * DPR;
+    zoomAt((mx - r.left) * DPR, (my - r.top) * DPR, d / pinch.d);
+    pinch = { d, mx, my };
+  } else if (panMode) {
+    panX += dx * DPR; panY += dy * DPR;
+  } else {
+    yaw += dx * 0.008 / Math.sqrt(zoom);
+    pitch = Math.max(-0.7, Math.min(1.0, pitch + dy * 0.005 / Math.sqrt(zoom)));
+  }
+});
+const up = (e) => {
+  ptrs.delete(e.pointerId);
+  if (ptrs.size < 2) pinch = null;
+  if (!ptrs.size) { dragging = false; cv.classList.remove("grabbing"); }
+  touch();
+};
+cv.addEventListener("pointerup", up);
+cv.addEventListener("pointercancel", up);
+cv.addEventListener("dblclick", () => { resetting = true; lastInteract = performance.now() - 2000; });
+
+// ---- controls
+let nameTimer = 0;
+const onNames = () => {
+  clearTimeout(nameTimer);
+  nameTimer = setTimeout(() => setNames(inName.value, inStone.value, true), 120);
+};
+inName.addEventListener("input", onNames);
+inStone.addEventListener("input", onNames);
+document.getElementById("btnReplay").addEventListener("click", replay);
+document.getElementById("btnCopy").addEventListener("click", async (e) => {
+  const btn = e.currentTarget;
+  const url = location.href;
+  try { await navigator.clipboard.writeText(url); }
+  catch {
+    const ta = document.createElement("textarea"); ta.value = url; document.body.appendChild(ta);
+    ta.select(); try { document.execCommand("copy"); } catch {} ta.remove();
+  }
+  btn.textContent = "copiado ✓";
+  setTimeout(() => (btn.textContent = "copiar link"), 1600);
+});
+setTimeout(() => (hintEl.style.opacity = 0), 9000);
+
+// ---- boot
+const q = new URLSearchParams(location.search);
+inName.value = q.get("nome") || "";
+inStone.value = q.get("pedra") || "";
+setNames(inName.value, inStone.value, false);
+new ResizeObserver(resize).observe(cv);
+window.addEventListener("resize", resize);
+resize();
+requestAnimationFrame((n) => { lastNow = n; requestAnimationFrame(frame); });
+</script>
+</body>
+</html>
